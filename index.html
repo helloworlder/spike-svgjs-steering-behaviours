@@ -1,0 +1,211 @@
+<html>
+<head>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/svg.js/3.0.13/svg.js"
+            integrity="sha256-SbaK8OY+scYVgjfb8SSK9hgQgBqFVNUBXmXAjGvjk08=" crossorigin="anonymous"></script>
+    <script src="./bower_components/victor/build/victor.js"></script>
+    <meta charset="UTF-8">
+    <style>
+        body {
+            font-family: arial;
+            background: rgb(34, 193, 195);
+            background: linear-gradient(0deg, rgba(34, 193, 195, 1) 0%, rgba(253, 187, 45, 1) 100%);
+        }
+    </style>
+</head>
+<body>
+<div id="paper" style="height:100vh; width:100%; position:relative;">
+    <div style="padding:0; text-align:center;">
+        <strong>Plural Movement - based on pseudocode from Artificial Intelligence for Games, Ian Millington 2006
+            edition)</strong>
+    </div>
+</div>
+<script>
+
+    function getScreenCenter() {
+        let x = window.innerWidth / 2;
+        let y = window.innerHeight / 2;
+        return {x: x, y: y};
+    }
+
+    // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Math/random
+    function getRandomInt(max) {
+        return Math.floor(Math.random() * Math.floor(max));
+    }
+
+    function randomBinomial() {
+        if (getRandomInt(1) === 1) {
+            return Math.random();
+        }
+        return -1 * Math.random();
+    }
+
+    // https://stackoverflow.com/questions/1766861/find-the-exact-height-and-width-of-the-viewport-in-a-cross-browser-way-no-proto
+    // http://andylangton.co.uk/articles/javascript/get-viewport-size-javascript/
+    function getViewport() {
+
+        let viewPortWidth;
+        let viewPortHeight;
+
+        // the more standards compliant browsers (mozilla/netscape/opera/IE7) use window.innerWidth and window.innerHeight
+        if (typeof window.innerWidth != 'undefined') {
+            viewPortWidth = window.innerWidth,
+                viewPortHeight = window.innerHeight
+        }
+
+        // IE6 in standards compliant mode (i.e. with a valid doctype as the first line in the document)
+        else if (typeof document.documentElement != 'undefined'
+            && typeof document.documentElement.clientWidth !=
+            'undefined' && document.documentElement.clientWidth != 0) {
+            viewPortWidth = document.documentElement.clientWidth,
+                viewPortHeight = document.documentElement.clientHeight
+        }
+
+        // older versions of IE
+        else {
+            viewPortWidth = document.getElementsByTagName('body')[0].clientWidth,
+                viewPortHeight = document.getElementsByTagName('body')[0].clientHeight
+        }
+        return {width: viewPortWidth, height: viewPortHeight};
+    }
+
+    function getNewOrientation(currentOrientation, velocity) {
+        // Make sure we have a velocity
+        if (velocity.length) {
+            // calculate orientation using an arc tangent of the velocity components:
+            return Math.atan2(velocity.y, velocity.x);
+        }
+        return currentOrientation;
+    }
+
+    // Artificial Intelligence for Games (2006)
+    // Steering based on pseudocode from - https://books.google.com.au/books/about/Artificial_Intelligence_for_Games.html?id=zCiv-lMad-AC&redir_esc=y
+
+    window.onload = function () {
+
+        // Plural:
+        const NUM_CHARACTERS = 400;
+        const X_MAX = getViewport().width;
+        const Y_MAX = getViewport().height;
+
+        let characters = [];
+        let paper = SVG().addTo('#paper').size(X_MAX, Y_MAX);
+
+        for (let i = 0; i < NUM_CHARACTERS; i++) {
+            let initialPlayerX = getRandomInt(X_MAX);
+            let initialPlayerY = getRandomInt(Y_MAX);
+
+            let initialPlayerVelX = getRandomInt(10);
+            let initialPlayerVelY = getRandomInt(10);
+
+            let group = paper.group();
+            let character = group.rect(5, 5);
+
+            character.move(initialPlayerX, initialPlayerY).fill('#f06');
+            character.position2 = new Victor(initialPlayerX, initialPlayerY);
+            character.orientation2 = 0;                                                  // scalar  ...
+
+            character.velocity = new Victor(initialPlayerVelX, initialPlayerVelY);      // set initial velocity
+
+            characters.push(character);
+        }
+
+        const INTERVAL_MS = 50;
+        const MAX_SPEED = 20;
+
+        let initialTargetX = getScreenCenter().x;
+        let initialTargetY = getScreenCenter().y;
+        let target = paper.rect(1, 1).move(initialTargetX, initialTargetY).fill('white');
+        target.position2 = new Victor(initialTargetX, initialTargetY); // math.matrix([700, 500]);
+
+        // Update Loop
+        let animationInt = setInterval(function () {
+            characters.forEach(function (character) {
+                let seekBehaviour = new KinematicArrive(character, target, MAX_SPEED, 10, 5);
+                let steering = seekBehaviour.getSteering();
+                if (steering) {
+                    let res = character.position2.add(steering.velocity);
+                    character.position2 = new Victor(res.x, res.y);
+                    seekBehaviour.character = character;
+                    character.move(res.x, res.y); // TODO: drop Trail at this xy?
+                }
+            })
+        }.bind(this), INTERVAL_MS);
+
+        function handleMouseClick(event) {
+            target.move(event.clientX, event.clientY).fill('white');
+            target.position2 = new Victor(event.clientX, event.clientY); // math.matrix([700, 500]);
+            console.log("clientX: " + event.clientX + " - clientY: " + event.clientY);
+        }
+        document.addEventListener("click", handleMouseClick);
+    };
+
+    // TODO: trail behind the moving moving stuff
+    class Trail {
+        constructor() {
+            const target = paper.rect(5, 5).move(initialTargetX, initialTargetY).fill('white');
+            target.position2 = new Victor(initialTargetX, initialTargetY); // math.matrix([700, 500]);
+        }
+    }
+
+    class KinematicSteeringOutput {
+        constructor(velocity, rotation) {
+            this.velocity = velocity || null;
+            this.rotation = rotation || null;
+        }
+    }
+
+    class KinematicSeek {
+        constructor(character, target, maxSpeed) {
+            this.character = character;
+            this.target = target;
+            this.maxSpeed = maxSpeed;
+        }
+
+        getSteering() {
+            let steering = new KinematicSteeringOutput();
+            let neededVector = this.target.position2.clone().subtract(this.character.position2);
+            neededVector.normalize();
+            neededVector = neededVector.clone().multiply(new Victor(this.maxSpeed, this.maxSpeed));
+            steering.velocity = neededVector.clone().subtract(this.character.velocity);
+            steering.rotation = 0;
+            return steering;
+        }
+    }
+
+    class KinematicArrive {
+        constructor(character, target, maxSpeed, radius, timeToTarget) {
+            this.character = character;
+            this.target = target;
+            this.maxSpeed = maxSpeed;
+            this.radius = radius;                   // satisfaction radius
+            this.timeToTarget = timeToTarget;       // the time to target
+        }
+
+        getSteering() {
+            let steering = new KinematicSteeringOutput();
+            let neededVector = this.target.position2.clone().subtract(this.character.position2);
+            if (neededVector.length > this.radius) {
+                return false;
+            }
+
+            // want to reach target timeToTarget seconds
+            neededVector.divide(new Victor(this.timeToTarget, this.timeToTarget));
+
+            // Limit to the maximum speed
+            if (neededVector.length() > this.maxSpeed) {
+                neededVector.normalize();
+                neededVector = neededVector.clone().multiply(new Victor(this.maxSpeed, this.maxSpeed));
+            }
+
+            steering.velocity = neededVector.clone().subtract(this.character.velocity);
+            steering.rotation = 0;
+
+            // Face in direction the character is to move in
+            // ... not implemented
+
+            return steering;
+        }
+    }
+</script>
+</body>
+</html>
